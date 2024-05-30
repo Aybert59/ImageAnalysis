@@ -9,4 +9,4 @@ Install Dependencies : opencv opencv-contrib torch torchvision tensorflow transf
 
 then just run : `python3 ImageAnalysis.py`
 
-Usage : have a look in the wiki pages
+Usage : have a look in the [wiki](https://github.com/Aybert59/ImageAnalysis/wiki) pages
