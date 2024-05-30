@@ -92,7 +92,8 @@ def do_detection (image, threshold, categories):
     if ModelType == 1: # object detection
         batch = [preprocess(img_tensor)]
         prediction = model(batch)[0]
-       
+        cTime = cv2.getTickCount()
+
         #delete boxes with low score
         prediction["boxes"] = prediction["boxes"][prediction["scores"] > threshold]
         prediction["labels"] = prediction["labels"][prediction["scores"] > threshold]
@@ -113,13 +114,14 @@ def do_detection (image, threshold, categories):
         box = draw_bounding_boxes(img_tensor, boxes=prediction["boxes"],
                     labels=labels, colors="red", width=4, font = "Courier.ttc", font_size=60)
         im = to_pil_image(box.detach())
-        return numpy.array(im)
+        return cTime, numpy.array(im)
     
     elif ModelType == 2: # image segmentation
         batch = preprocess(img_tensor).unsqueeze(0)
         
         prediction = model(batch)["out"]
         normalized_masks = prediction.softmax(dim=1)
+        cTime = cv2.getTickCount()
 
         #resize the normalized_masks tensor like img_tensor
         masks = torch.nn.functional.interpolate(normalized_masks, size=(img_tensor.shape[1], img_tensor.shape[2]), mode="bilinear")
@@ -135,7 +137,7 @@ def do_detection (image, threshold, categories):
 
         box = draw_segmentation_masks(img_tensor, mask, alpha=0.5, colors="green")
         im = to_pil_image(box.detach())
-        return numpy.array(im)
+        return cTime, numpy.array(im)
         
     
     elif ModelType == 3: # image classification
@@ -144,6 +146,7 @@ def do_detection (image, threshold, categories):
         # Step 4: Use the model and print the predicted category
         prediction = model(batch).squeeze(0).softmax(0)
         class_id = prediction.argmax().item()
+        cTime = cv2.getTickCount()
 
         score = prediction[class_id].item()
         category_name = weights.meta["categories"][class_id]
@@ -151,7 +154,7 @@ def do_detection (image, threshold, categories):
         #write the label on the image
         im = image.copy()
         im = cv2.putText(im, f"{category_name}: {100 * score:.1f}%", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 0, 0), 4, cv2.LINE_AA)
-        return im
+        return cTime, im
     
     elif ModelType == 4: # image classification from HuggingFace
         
@@ -164,6 +167,7 @@ def do_detection (image, threshold, categories):
 
         class_id = prediction.logits.argmax().item()
         score = prediction.logits.softmax(1)[0][class_id].item()
+        cTime = cv2.getTickCount()
 
         category_name = model.config.id2label[class_id]
 
@@ -171,7 +175,7 @@ def do_detection (image, threshold, categories):
         #write the label on the image
         im = image.copy()
         im = cv2.putText(im, f"{category_name}: {100 * score:.1f}%", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 0, 0), 4, cv2.LINE_AA)
-        return im
+        return cTime, im
     
     elif ModelType == 5: # image segmentation from HuggingFace
 
@@ -179,6 +183,7 @@ def do_detection (image, threshold, categories):
         inputs = preprocess(images=image, return_tensors="pt").to(device)
         outputs = model(**inputs)
         logits = outputs.logits  # shape (batch_size, num_labels, ~height/4, ~width/4)
+        cTime = cv2.getTickCount()
 
         # resize output to match input image dimensions
         upsampled_logits = torch.nn.functional.interpolate(logits,
@@ -199,7 +204,7 @@ def do_detection (image, threshold, categories):
         box = draw_segmentation_masks(img_tensor, predicted_mask.cpu().bool(), alpha=0.5, colors="green")
         im = to_pil_image(box.detach())
     
-        return numpy.array(im)
+        return cTime, numpy.array(im)
     
     elif ModelType == 6: # object detection from HuggingFace
         
@@ -208,6 +213,7 @@ def do_detection (image, threshold, categories):
 
         with torch.no_grad():
             prediction = model(**batch)
+        cTime = cv2.getTickCount()
 
         #logits = prediction.logits
         #bboxes = prediction.pred_boxes
@@ -233,7 +239,7 @@ def do_detection (image, threshold, categories):
                              cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 0, 0), 4, cv2.LINE_AA)
             im = cv2.rectangle(im, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 2)
         
-        return im
+        return cTime, im
     
 def display_camera_image(canvas, labelfps, listbox):
     global cap
@@ -251,7 +257,7 @@ def display_camera_image(canvas, labelfps, listbox):
         Limage = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         if detection is not None:
-            im = do_detection (Limage, DetectionThreshold.get()/100.0, cats)
+            cTime, im = do_detection (Limage, DetectionThreshold.get()/100.0, cats)
             display_image(canvas, im)
         else:
             display_image(canvas, Limage)
@@ -299,12 +305,14 @@ def activate_detection(canvas, labelfps, listbox):
         detection_button.config(text="Detection On")
         
         sTime = cv2.getTickCount()
-        im = do_detection (Limage, DetectionThreshold.get()/100.0, cats)
+        cTime, im = do_detection (Limage, DetectionThreshold.get()/100.0, cats)
         eTime = cv2.getTickCount()
-        d = (eTime - sTime)/cv2.getTickFrequency()
+        d = (cTime - sTime)/cv2.getTickFrequency()
+        d2 = (eTime - sTime)/cv2.getTickFrequency()
 
         display_image(canvas, im)
         labelfps.config(text=str(float("{:.3f}".format(d))) + " sec")
+        display_log("Detection + drawing time : " + str(float("{:.3f}".format(d2))) + " sec", "info") 
         detection = True
     else:
         detection_button.config(text="Detection Off")
@@ -391,12 +399,13 @@ def select_CL_model(canvas,  menu, label, model_name, labelfps, window, listbox,
     window.title("Image Classification")
     ModelType = 3
 
-def select_hf_CL_model(canvas,  menu, label, labelfps, window, listbox, button_device):
+def select_hf_CL_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
     global ModelType
     global preprocess
     global model
     
-    HF_name = simpledialog.askstring("Model", "Classification model ?")
+    if HF_name is  None:
+        HF_name = simpledialog.askstring("Model", "Classification model ?")
 
     if HF_name is not None:
         preprocess = AutoImageProcessor.from_pretrained(HF_name)
@@ -412,12 +421,13 @@ def select_hf_CL_model(canvas,  menu, label, labelfps, window, listbox, button_d
         window.title("HuggingFace Image Classification")
         ModelType = 4
 
-def select_hf_SEG_model(canvas,  menu, label, labelfps, window, listbox, button_device):
+def select_hf_SEG_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
     global ModelType
     global preprocess
     global model
     
-    HF_name = simpledialog.askstring("Model", "Segmentation model ?")
+    if HF_name is  None:
+        HF_name = simpledialog.askstring("Model", "Segmentation model ?")
 
     if HF_name is not None:
         preprocess = SegformerImageProcessor.from_pretrained(HF_name)
@@ -433,12 +443,13 @@ def select_hf_SEG_model(canvas,  menu, label, labelfps, window, listbox, button_
         window.title("HuggingFace Image Segmentation")
         ModelType = 5
 
-def select_hf_OD_model(canvas,  menu, label, labelfps, window, listbox, button_device):
+def select_hf_OD_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
     global ModelType
     global preprocess
     global model
     
-    HF_name = simpledialog.askstring("Model", "Object Detection model ?")
+    if HF_name is  None:
+        HF_name = simpledialog.askstring("Model", "Object Detection model ?")
 
     if HF_name is not None:
         preprocess = DetrFeatureExtractor.from_pretrained(HF_name)
@@ -453,6 +464,43 @@ def select_hf_OD_model(canvas,  menu, label, labelfps, window, listbox, button_d
 
         window.title("HuggingFace Object Detection")
         ModelType = 6
+
+def select_local_CL_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
+    global ModelType
+    global preprocess
+    global model
+
+    file_path = filedialog.askopenfilename(initialdir=os.path.expanduser("~"), title="Select a model")
+    file_path = os.path.dirname(file_path)
+
+    if file_path is not None:
+        preprocess = AutoImageProcessor.from_pretrained(file_path)
+        model = AutoModelForImageClassification.from_pretrained(file_path)
+        model.to(device)
+        model.eval()
+
+        label.config(text=HF_name)
+
+        listbox.delete(0, tk.END)
+        listbox.insert(0, *model.config.id2label.values())
+
+        window.title("Local Image Classification")
+        ModelType = 4
+    
+
+def select_local_SEG_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
+    global ModelType
+    global preprocess
+    global model
+    
+    return
+
+def select_local_OD_model(canvas,  menu, label, labelfps, window, listbox, HF_name):
+    global ModelType
+    global preprocess
+    global model
+    
+    return
 
 def toggle_device():
     global device
@@ -539,15 +587,45 @@ for model_name in CL_models:
 menubar.add_cascade(label="Image Classification", menu=CL_menu)
 
 #create a menu to select external model
-CL_menu = tk.Menu(menubar, tearoff=0)
-CL_menu.add_command(label='Classification', command=lambda arg3=label_fps, arg4=window, arg5=listbox, arg6=device_button : 
-                        select_hf_CL_model(canvas, menubar, label_model,  arg3, arg4, arg5, arg6))
-CL_menu.add_command(label='Segmentation', command=lambda arg3=label_fps, arg4=window, arg5=listbox, arg6=device_button : 
-                        select_hf_SEG_model(canvas, menubar, label_model,  arg3, arg4, arg5, arg6))
-CL_menu.add_command(label='Object Detection', command=lambda arg3=label_fps, arg4=window, arg5=listbox, arg6=device_button : 
-                        select_hf_OD_model(canvas, menubar, label_model,  arg3, arg4, arg5, arg6))
-menubar.add_cascade(label="HuggingFace Models", menu=CL_menu)
+HF_menu = tk.Menu(menubar, tearoff=0)
+HF_menu.add_command(label='Classification', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_CL_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+HF_menu.add_command(label='Segmentation', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_SEG_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+HF_menu.add_command(label='Object Detection', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_OD_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+HF_menu.add_separator()
 
+
+#if file "favorites" exists open it
+if os.path.isfile("favorites"):
+    with open("favorites", "r") as f:
+        for line in f:
+
+            #split line by semicolumn
+            model_name, model_type, model_comment = line.split(";")
+
+            if model_type == "OD":
+                HF_menu.add_command(label=model_name, command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_OD_model(canvas, menubar, label_model,  arg3, arg4, arg5, model_name))
+            elif model_type == "SEG":
+                HF_menu.add_command(label=model_name, command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_SEG_model(canvas, menubar, label_model,  arg3, arg4, arg5, model_name))
+            elif model_type == "CL":
+                HF_menu.add_command(label=model_name, command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_hf_CL_model(canvas, menubar, label_model,  arg3, arg4, arg5, model_name))
+
+menubar.add_cascade(label="HuggingFace Models", menu=HF_menu)
+
+#create a menu to select external model
+localmenu = tk.Menu(menubar, tearoff=0)
+localmenu.add_command(label='Chose an object detection model...', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_local_OD_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+localmenu.add_command(label='Chose a segmentation model...', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_local_SEG_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+localmenu.add_command(label='Chose a classification model...', command=lambda arg3=label_fps, arg4=window, arg5=listbox : 
+                        select_local_CL_model(canvas, menubar, label_model,  arg3, arg4, arg5, None))
+menubar.add_cascade(label="Local models", menu=localmenu)
 
 window.mainloop()
 
