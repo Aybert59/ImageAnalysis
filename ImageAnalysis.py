@@ -15,7 +15,7 @@ from torchvision.transforms.functional import to_pil_image, pil_to_tensor
 import numpy
 import os
 from transformers import AutoImageProcessor, AutoModelForImageClassification
-from transformers import DetrFeatureExtractor, DetrForObjectDetection
+from transformers import DetrImageProcessor, DetrForObjectDetection
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 
 from huggingface_hub import HfApi
@@ -452,7 +452,7 @@ def select_hf_OD_model(canvas,  menu, label, labelfps, window, listbox, HF_name)
         HF_name = simpledialog.askstring("Model", "Object Detection model ?")
 
     if HF_name is not None:
-        preprocess = DetrFeatureExtractor.from_pretrained(HF_name)
+        preprocess = DetrImageProcessor.from_pretrained(HF_name)
         model = DetrForObjectDetection.from_pretrained(HF_name)
         model.to(device)
         model.eval()
@@ -500,7 +500,24 @@ def select_local_OD_model(canvas,  menu, label, labelfps, window, listbox, HF_na
     global preprocess
     global model
     
-    return
+    file_path = filedialog.askopenfilename(initialdir=os.path.expanduser("~"), title="Select a model")
+    file_path = os.path.dirname(file_path)
+
+    if file_path is not None:
+        #preprocess = DetrImageProcessor.from_pretrained('facebook/detr-resnet-50')
+        preprocess = DetrImageProcessor.from_pretrained(file_path)
+        model = DetrForObjectDetection.from_pretrained(file_path)
+        model.to(device)
+        model.eval()
+
+        label.config(text=HF_name)
+
+        listbox.delete(0, tk.END)
+        listbox.insert(0, *model.config.id2label.values())
+
+        window.title("Local Object Detection")
+        ModelType = 6
+
 
 def toggle_device():
     global device

@@ -1,7 +1,6 @@
 # from great HF tuto at https://github.com/huggingface/notebooks/blob/main/examples/image_classification_albumentations.ipynb
 
 from datasets import load_dataset, load_metric
-import cv2
 import albumentations as A
 import numpy as np
 import torch
@@ -9,18 +8,19 @@ import evaluate
 from transformers import AutoImageProcessor
 from transformers import AutoModelForImageClassification, TrainingArguments, Trainer
 
+
 # Step 1 : chose a model to train
 
 print ('Starting')
 model_checkpoint = "vincentclaes/mit-indoor-scenes"
 #model_checkpoint = "/Users/olivier/ImageAnalysis/mit-indoor-scenes-finetuned-homepics-albumentations/checkpoint-100"
 batch_size = 32 # batch size for training and evaluation
-epochs = 150
+epochs = 200
 
 print ('Loading Dataset')
 # Step 2 : load dataset from homedir
 #dataset = load_dataset("huggingface:jonathandinu/face-parsing") or just a name like "beans"
-dataset = load_dataset("imagefolder", data_dir="/Users/olivier/Datasets/pieces")
+dataset = load_dataset("imagefolder", data_dir="/Volumes/photo/Datasets/pieces")
 
 metric = evaluate.load("accuracy", trust_remote_code=True)
 
@@ -62,13 +62,15 @@ elif "shortest_edge" in image_processor.size:
 #])
 
 train_transforms = A.Compose([
-    A.Resize(height=size[0]*2, width=size[1]*2),
-    A.RandomCrop(width=size[1], height=size[0]),
-    A.CLAHE(p=0.8),
-    A.Rotate(limit=(-20, 20), p=0.8),
+    A.RandomResizedCrop(size[1],size[0], scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), always_apply=False, p=1.0),
     A.HorizontalFlip(p=0.5),
-    A.RandomBrightnessContrast(p=0.2),
+    A.RandomGamma(gamma_limit=(80, 120), eps=None, always_apply=False, p=0.5),
+    A.RandomBrightnessContrast (p=0.5),
+    A.CLAHE(clip_limit=4.0, tile_grid_size=(8, 8), always_apply=False, p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5),
+    A.RGBShift(r_shift_limit=15, g_shift_limit=15, b_shift_limit=15, p=0.5),
     A.Normalize(),
+#    A.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
 ])
 
 val_transforms = A.Compose([
@@ -119,17 +121,18 @@ model = AutoModelForImageClassification.from_pretrained(
 model_name = model_checkpoint.split("/")[-1]
 
 args = TrainingArguments(
-    output_dir=f"{model_name}-finetuned-homepics-albumentations",
+    output_dir=f"models/{model_name}-finetuned-homepics-albumentations",
     remove_unused_columns=False,
     eval_strategy = "epoch",
     save_strategy = "epoch",
+    save_total_limit = 5,
     learning_rate=5e-5,
     per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=4,
     per_device_eval_batch_size=batch_size,
     num_train_epochs=epochs,
     warmup_ratio=0.1,
-    logging_steps=10,
+    logging_steps=50,
     load_best_model_at_end=True,
     metric_for_best_model="accuracy",
     push_to_hub=False,

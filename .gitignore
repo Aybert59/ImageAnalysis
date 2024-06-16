@@ -1,2 +1,7 @@
 __pycache__
 .DS_Store
+checkpoint-*
+via.html
+models
+lightning_logs
+label.sh
